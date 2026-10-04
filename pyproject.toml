@@ -35,6 +35,9 @@ src = ["src", "tests"]
 # PLR0913/PLR0915 — длинные сигнатуры и функции (SRP, KISS)
 select = ["E", "F", "I", "B", "UP", "SIM", "N", "S", "C90", "PLR0913", "PLR0915"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["shorts"]
+
 [tool.ruff.lint.mccabe]
 max-complexity = 8
 
