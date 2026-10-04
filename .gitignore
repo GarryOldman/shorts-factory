@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+# медиа и артефакты пайплайна живут вне репозитория
+data/
+*.mp4
+*.mkv
+*.wav
+*.db
