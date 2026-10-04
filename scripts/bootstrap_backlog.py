@@ -7,8 +7,8 @@
 """
 
 import argparse
-import re
 import subprocess
+import urllib.parse
 from dataclasses import dataclass, field
 
 LABELS = {
@@ -189,16 +189,9 @@ def gh(*args: str, dry: bool = False) -> str:
     """Вызывает gh и возвращает stdout; в dry-run только печатает команду."""
     if dry:
         print("DRY gh", " ".join(args[:4]), "...")
-        return "https://github.com/dry/run/issues/0"
+        return "0\n0"
     result = subprocess.run(["gh", *args], check=True, capture_output=True, text=True)
     return result.stdout.strip()
-
-
-def issue_number(url: str) -> int:
-    match = re.search(r"/issues/(\d+)$", url)
-    if not match:
-        raise ValueError(f"не удалось получить номер issue из: {url}")
-    return int(match.group(1))
 
 
 def body_of(task: Task) -> str:
@@ -206,17 +199,52 @@ def body_of(task: Task) -> str:
     return f"{task.desc}\n\n## Критерии приёмки\n{accept}{TASK_FOOTER}"
 
 
-def create_issue(repo: str, title: str, body: str, labels: tuple[str, ...], dry: bool) -> int:
-    args = ["issue", "create", "--repo", repo, "--title", title, "--body", body]
-    for label in labels:
-        args += ["--label", label]
-    return issue_number(gh(*args, dry=dry))
-
-
-def link_sub_issue(repo: str, parent: int, child: int, dry: bool) -> None:
-    """Привязывает child как sub-issue к parent (если API доступно)."""
+def ensure_label(repo: str, name: str, color: str, dry: bool) -> None:
+    """Создаёт метку через REST, а если она есть — обновляет цвет."""
     try:
-        child_id = gh("api", f"repos/{repo}/issues/{child}", "--jq", ".id", dry=dry)
+        gh(
+            "api",
+            "-X",
+            "POST",
+            f"repos/{repo}/labels",
+            "-f",
+            f"name={name}",
+            "-f",
+            f"color={color}",
+            dry=dry,
+        )
+    except subprocess.CalledProcessError:
+        quoted = urllib.parse.quote(name, safe="")
+        gh("api", "-X", "PATCH", f"repos/{repo}/labels/{quoted}", "-f", f"color={color}", dry=dry)
+
+
+def create_issue(
+    repo: str, title: str, body: str, labels: tuple[str, ...], dry: bool
+) -> tuple[int, int]:
+    """Создаёт issue через REST (GraphQL в сессиях Claude недоступен); возвращает (number, id)."""
+    args = [
+        "api",
+        "-X",
+        "POST",
+        f"repos/{repo}/issues",
+        "-f",
+        f"title={title}",
+        "-f",
+        f"body={body}",
+    ]
+    for label in labels:
+        args += ["-f", f"labels[]={label}"]
+    number, issue_id = gh(*args, "--jq", ".number, .id", dry=dry).split()
+    return int(number), int(issue_id)
+
+
+def set_body(repo: str, number: int, body: str, dry: bool) -> None:
+    gh("api", "-X", "PATCH", f"repos/{repo}/issues/{number}", "-f", f"body={body}", dry=dry)
+
+
+def link_sub_issue(repo: str, parent: int, child_id: int, dry: bool) -> None:
+    """Привязывает задачу как sub-issue к эпику (если API доступно)."""
+    try:
         gh(
             "api",
             "-X",
@@ -227,29 +255,32 @@ def link_sub_issue(repo: str, parent: int, child: int, dry: bool) -> None:
             dry=dry,
         )
     except subprocess.CalledProcessError as err:
-        print(f"  ! sub-issue #{child} -> #{parent} не привязана: {err.stderr.strip()}")
+        print(f"  ! sub-issue (id {child_id}) -> #{parent} не привязана: {err.stderr.strip()}")
 
 
 def add_to_project(repo: str, project: int | None, number: int, dry: bool) -> None:
+    """Добавляет issue в Project (gh project использует GraphQL — работает на вашем ПК)."""
     if project is None:
         return
     owner = repo.split("/")[0]
     url = f"https://github.com/{repo}/issues/{number}"
-    gh("project", "item-add", str(project), "--owner", owner, "--url", url, dry=dry)
+    try:
+        gh("project", "item-add", str(project), "--owner", owner, "--url", url, dry=dry)
+    except subprocess.CalledProcessError as err:
+        print(f"  ! #{number} не добавлена в Project: {err.stderr.strip()}")
 
 
 def create_epic(repo: str, epic: Epic, project: int | None, dry: bool) -> None:
-    epic_no = create_issue(repo, f"[Эпик] {epic.title}", epic.goal, ("epic", epic.label), dry)
+    epic_no, _ = create_issue(repo, f"[Эпик] {epic.title}", epic.goal, ("epic", epic.label), dry)
     add_to_project(repo, project, epic_no, dry)
     lines = []
     for task in epic.tasks:
-        no = create_issue(repo, task.title, body_of(task), task.labels, dry)
+        no, issue_id = create_issue(repo, task.title, body_of(task), task.labels, dry)
         add_to_project(repo, project, no, dry)
-        link_sub_issue(repo, epic_no, no, dry)
+        link_sub_issue(repo, epic_no, issue_id, dry)
         lines.append(f"- [ ] #{no} {task.title}")
         print(f"SF-{no}: {task.title}")
-    body = f"{epic.goal}\n\n## Задачи\n" + "\n".join(lines)
-    gh("issue", "edit", str(epic_no), "--repo", repo, "--body", body, dry=dry)
+    set_body(repo, epic_no, f"{epic.goal}\n\n## Задачи\n" + "\n".join(lines), dry)
     print(f"Эпик #{epic_no}: {epic.title}")
 
 
@@ -260,18 +291,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     for name, color in LABELS.items():
-        gh(
-            "label",
-            "create",
-            name,
-            "--repo",
-            args.repo,
-            "--color",
-            color,
-            "--force",
-            dry=args.dry_run,
-        )
-    first = create_issue(
+        ensure_label(args.repo, name, color, args.dry_run)
+    first, _ = create_issue(
         args.repo, SCAFFOLD.title, body_of(SCAFFOLD), SCAFFOLD.labels, args.dry_run
     )
     if first != 1 and not args.dry_run:
