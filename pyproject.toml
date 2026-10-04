@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shorts"
+version = "0.1.0"
+description = "Автоматическая нарезка длинных видео на шортсы"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=shorts --cov-branch --cov-report=term-missing --cov-fail-under=80"
+markers = [
+    "slow: долгие тесты (реальные модели, большие видео) — не запускаются в CI",
+    "gpu: требуют GPU — не запускаются в CI",
+    "ffmpeg: требуют ffmpeg в PATH",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F — pycodestyle/pyflakes, I — импорты, B — баги, UP — современный синтаксис,
+# SIM — упрощения, N — нейминг, S — безопасность, C90 — сложность,
+# PLR0913/PLR0915 — длинные сигнатуры и функции (SRP, KISS)
+select = ["E", "F", "I", "B", "UP", "SIM", "N", "S", "C90", "PLR0913", "PLR0915"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-statements = 25
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR0913"]
