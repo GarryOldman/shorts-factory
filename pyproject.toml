@@ -7,7 +7,7 @@ name = "shorts"
 version = "0.1.0"
 description = "Автоматическая нарезка длинных видео на шортсы"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["pydantic>=2.9", "pyyaml>=6"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-cov>=6", "ruff>=0.8"]
@@ -34,6 +34,9 @@ src = ["src", "tests"]
 # SIM — упрощения, N — нейминг, S — безопасность, C90 — сложность,
 # PLR0913/PLR0915 — длинные сигнатуры и функции (SRP, KISS)
 select = ["E", "F", "I", "B", "UP", "SIM", "N", "S", "C90", "PLR0913", "PLR0915"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["shorts"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 8
