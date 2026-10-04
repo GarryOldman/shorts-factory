@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Установка ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Установка зависимостей
+        run: pip install -e ".[dev]"
+      - name: Линтер
+        run: ruff check .
+      - name: Формат
+        run: ruff format --check .
+      - name: Тесты и покрытие (>= 80%)
+        run: pytest -m "not slow and not gpu"
+
+  conventions:
+    name: conventions
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Имя ветки SF-N-slug
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          [[ "$BRANCH" =~ ^SF-[0-9]+-[a-z0-9-]+$ ]] || { echo "Ветка '$BRANCH' не соответствует SF-N-slug"; exit 1; }
+      - name: Коммиты в формате [SF-N] по-русски
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bad=0
+          while IFS= read -r subject; do
+            [[ "$subject" =~ ^\[SF-[0-9]+\]\ .+ ]] || { echo "Неверный формат: $subject"; bad=1; }
+          done < <(git log --no-merges --format=%s "$BASE..$HEAD")
+          exit $bad
+      - name: Номер в ветке совпадает с номером в коммитах
+        env:
+          BRANCH: ${{ github.head_ref }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          n="${BRANCH#SF-}"; n="${n%%-*}"
+          bad=0
+          while IFS= read -r subject; do
+            [[ "$subject" == "[SF-$n] "* ]] || { echo "Ожидался [SF-$n]: $subject"; bad=1; }
+          done < <(git log --no-merges --format=%s "$BASE..$HEAD")
+          exit $bad
